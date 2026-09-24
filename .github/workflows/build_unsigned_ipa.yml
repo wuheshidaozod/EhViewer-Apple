@@ -62,3 +62,12 @@ jobs:
           name: EhViewer-unsigned-ipa
           path: build/EhViewer-unsigned.ipa
           retention-days: 14
+
+      # 崩溃日志靠 UUID 匹配 dSYM 才能符号化到具体行号。
+      # 不存这个，出了崩溃日志也只能看到裸地址偏移，猜不出是哪一行。
+      - name: Upload dSYMs artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: EhViewer-dSYMs
+          path: ${{ runner.temp }}/EhViewer.xcarchive/dSYMs
+          retention-days: 90
