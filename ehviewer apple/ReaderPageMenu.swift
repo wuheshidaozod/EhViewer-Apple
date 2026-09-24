@@ -10,6 +10,7 @@
 
 import SwiftUI
 import Photos
+import UniformTypeIdentifiers
 
 #if os(iOS)
 import UIKit
@@ -28,9 +29,22 @@ enum ReaderImageSaver {
             EhToast.failure("没有相册权限")
             return
         }
+        // 之前这里用 PHAssetChangeRequest.creationRequestForAsset(from: image)，
+        // 传入的是解码后的 UIImage 对象。PhotoKit 对这种"裸 UIImage"输入
+        // 不保证按位保存——内部会重新编码（通常是有损 JPEG），画质明显低于
+        // "存储到文件"那条路径（image.pngData() 直接无损落盘）。
+        // 改成先取 PNG Data，再用 PHAssetCreationRequest 把原始字节写进相册，
+        // 这样两条路径保存的是完全相同的数据，不再有画质差异。
+        guard let data = image.pngData() else {
+            EhToast.failure("图片数据无效")
+            return
+        }
         do {
             try await PHPhotoLibrary.shared().performChanges {
-                PHAssetChangeRequest.creationRequestForAsset(from: image)
+                let request = PHAssetCreationRequest.forAsset()
+                let options = PHAssetResourceCreationOptions()
+                options.uniformTypeIdentifier = UTType.png.identifier
+                request.addResource(with: .photo, data: data, options: options)
             }
             EhToast.success("已保存到相册")
         } catch {
