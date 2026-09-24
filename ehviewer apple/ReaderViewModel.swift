@@ -987,7 +987,7 @@ class ReaderViewModel {
     /// 调用方应退回使用当前已显示的图。
     func fetchOriginalDataForSaving(index: Int) async -> Data? {
         guard let url = originalImageURL(for: index) else { return nil }
-        return try? await EhAPI.shared.fetchImageData(
+        return try? await EhAPI.shared.fetchImageDataFollowingRedirects(
             url: url.absoluteString, referer: GalleryActionService.siteBaseURL)
     }
 

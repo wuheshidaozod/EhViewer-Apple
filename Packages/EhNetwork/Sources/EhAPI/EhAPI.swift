@@ -930,6 +930,33 @@ public actor EhAPI {
         return data
     }
 
+    /// 图片数据获取 — 跟随重定向版本。
+    ///
+    /// ⚠️ Bug 修复：原图（"Download original" 直链）经常是一次 302 跳转到
+    /// 真正的文件地址，不是直接返回图片字节。上面的 fetchImageData 用的
+    /// imageSession 特意配了 RedirectBlockDelegate 不跟随重定向（那是给
+    /// 普通重采样图的直连兜底用的，那类链接本身就不重定向），拿去请求原图
+    /// 链接时，会把那个 3xx 跳转响应本身当"成功"返回——状态码 < 400，
+    /// checkResponse 不报错，但 body 是空的，于是存下来的文件是 0 字节。
+    /// 这里换成跟随重定向的通用 session，并且显式拒绝空响应。
+    public func fetchImageDataFollowingRedirects(
+        url: String, referer: String? = nil, timeout: TimeInterval = 60
+    ) async throws -> Data {
+        guard let requestUrl = URL(string: url) else {
+            throw EhError.invalidUrl
+        }
+        var request = EhRequestBuilder.buildGetRequest(url: requestUrl, referer: referer)
+        request.timeoutInterval = timeout
+        let (data, response) = try await sanitizedData(for: request)
+        if let http = response as? HTTPURLResponse, http.statusCode >= 400 {
+            throw EhError.httpError(http.statusCode, "")
+        }
+        guard !data.isEmpty else {
+            throw EhError.networkError("空响应")
+        }
+        return data
+    }
+
     // MARK: - 以图搜图 (对应 Android imageSearch)
 
     /// 以图搜图 (对应 Android imageSearch)
