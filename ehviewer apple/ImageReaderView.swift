@@ -1039,17 +1039,31 @@ struct ImageReaderView: View {
         }
 
         Button {
-            if let url = ReaderImageSaver.temporaryFile(for: image, gid: gid, page: index) {
-                shareItem = ReaderShareItem(url: url)
-            } else {
-                EhToast.failure("无法准备图片")
+            Task {
+                let url: URL?
+                if let data = await vm.fetchOriginalDataForSaving(index: index) {
+                    url = ReaderImageSaver.temporaryFile(data: data, gid: gid, page: index)
+                } else {
+                    url = ReaderImageSaver.temporaryFile(for: image, gid: gid, page: index)
+                }
+                if let url {
+                    shareItem = ReaderShareItem(url: url)
+                } else {
+                    EhToast.failure("无法准备图片")
+                }
             }
         } label: {
             Label("分享", systemImage: "square.and.arrow.up")
         }
 
         Button {
-            Task { await ReaderImageSaver.saveToPhotos(image) }
+            Task {
+                if let data = await vm.fetchOriginalDataForSaving(index: index) {
+                    await ReaderImageSaver.saveToPhotos(data: data)
+                } else {
+                    await ReaderImageSaver.saveToPhotos(image)
+                }
+            }
         } label: {
             Label("保存到相册", systemImage: "photo.badge.arrow.down")
         }
@@ -1057,8 +1071,16 @@ struct ImageReaderView: View {
         Button {
             // 「存储到文件」走的也是系统面板，那里有「存储到文件」这一项，
             // 对应 Android 的 page_menu_save_to
-            if let url = ReaderImageSaver.temporaryFile(for: image, gid: gid, page: index) {
-                shareItem = ReaderShareItem(url: url)
+            Task {
+                let url: URL?
+                if let data = await vm.fetchOriginalDataForSaving(index: index) {
+                    url = ReaderImageSaver.temporaryFile(data: data, gid: gid, page: index)
+                } else {
+                    url = ReaderImageSaver.temporaryFile(for: image, gid: gid, page: index)
+                }
+                if let url {
+                    shareItem = ReaderShareItem(url: url)
+                }
             }
         } label: {
             Label("存储到文件", systemImage: "folder.badge.plus")

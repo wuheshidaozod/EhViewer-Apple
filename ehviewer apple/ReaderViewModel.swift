@@ -965,6 +965,32 @@ class ReaderViewModel {
         return ".jpg"
     }
 
+    /// 每页的原图直链缓存（key: 页码）。
+    ///
+    /// 看图走的是重采样版（快、省流量，阅读体验不需要原图），但"保存/分享"
+    /// 这个动作用户是真的要留一份，应该给原图。这个缓存让"保存"不用重新
+    /// 请求一遍页面 HTML（EH 对页面请求本身也计流量/有频率限制），
+    /// 直接复用阅读时已经解析出来的原图直链。
+    @ObservationIgnored private var originImageURLs: [Int: String] = [:]
+
+    /// 保存/分享时应该用的原图 URL — 仅当设置开了"下载原图"且这一页确实有
+    /// 原图直链时才返回非 nil；调用方拿到 nil 就应该退回当前显示的这张图。
+    func originalImageURL(for index: Int) -> URL? {
+        guard AppSettings.shared.downloadOriginImage,
+              let origin = originImageURLs[index], !origin.isEmpty else { return nil }
+        return URL(string: origin)
+    }
+
+    /// 保存/分享用：真正下载一份原图字节（不是把阅读器里已经解码/重采样过的
+    /// 那张图再编码回去——那样即使原链接是原图也已经晚了，阅读器为了流畅
+    /// 在解码阶段就可能降采样过一轮）。没有原图直链或者设置没开时返回 nil，
+    /// 调用方应退回使用当前已显示的图。
+    func fetchOriginalDataForSaving(index: Int) async -> Data? {
+        guard let url = originalImageURL(for: index) else { return nil }
+        return try? await EhAPI.shared.fetchImageData(
+            url: url.absoluteString, referer: GalleryActionService.siteBaseURL)
+    }
+
     /// 换一个 H@H 节点重新获取图片 URL — 对齐 Android SpiderQueen 的 `?nl=<skipHathKey>` 重试
     ///
     /// E-Hentai 把图片分发到用户自建的 H@H 节点上，某个节点掉线 / 证书过期 / 被墙时，
@@ -989,6 +1015,7 @@ class ReaderViewModel {
 
         skipHathKeys[index] = result.skipHathKey
         if let showKey = result.showKey { showKeys[index] = showKey }
+        originImageURLs[index] = result.originImageUrl
         GalleryCache.shared.putImageURL(result.imageUrl, gid: gid, page: index)
         await MainActor.run { self.imageURLs[index] = result.imageUrl }
         debugLog("[Reader] Page \(index): switched H@H node → \(newURL.host ?? "?")")
@@ -1098,6 +1125,8 @@ class ReaderViewModel {
                 showKeys[index] = key
             }
             skipHathKeys[index] = result.skipHathKey
+            // 只存起来给"保存/分享"用，不影响这里显示的图（阅读器一直用重采样版）
+            originImageURLs[index] = result.originImageUrl
         } catch is CancellationError {
             return
         } catch let urlError as URLError where urlError.code == .cancelled {
