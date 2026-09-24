@@ -1,0 +1,64 @@
+name: Build Unsigned IPA
+
+# 手动触发：在 GitHub 网页上 Actions → Build Unsigned IPA → Run workflow
+on:
+  workflow_dispatch:
+
+jobs:
+  build-unsigned-ipa:
+    runs-on: macos-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select newest Xcode
+        run: |
+          LATEST=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)
+          LATEST=${LATEST:-/Applications/Xcode.app}
+          sudo xcode-select -s "$LATEST"
+          xcodebuild -version
+
+      # 关键：CODE_SIGNING_ALLOWED=NO 让归档产物是未签名的 .app。
+      # -archivePath 指定输出位置；用 archive 而不是普通 build，
+      # 是因为 archive 会把 App + 内嵌的 Widget Extension 一起打包，
+      # 普通 build 产物在 DerivedData 里，扩展不一定齐。
+      - name: Archive (unsigned)
+        run: |
+          xcodebuild archive \
+            -project "ehviewer apple.xcodeproj" \
+            -scheme "ehviewer apple" \
+            -archivePath "$RUNNER_TEMP/EhViewer.xcarchive" \
+            -destination "generic/platform=iOS" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            AD_HOC_CODE_SIGNING_ALLOWED=YES
+
+      # 未签名 ipa 其实就是把 .app 塞进一个叫 Payload 的文件夹再 zip，
+      # 后缀改成 .ipa。这一步不走 xcodebuild -exportArchive
+      # （那一步强制要求签名配置/导出方式，未签名场景走不通），手工打包即可。
+      # Sideloadly / AltStore 拿到这种"裸" ipa 会自己重新签名再装。
+      - name: Package unsigned IPA
+        run: |
+          set -e
+          ARCHIVE_APP_DIR="$RUNNER_TEMP/EhViewer.xcarchive/Products/Applications"
+          APP_PATH=$(find "$ARCHIVE_APP_DIR" -maxdepth 1 -name "*.app" | head -1)
+          if [ -z "$APP_PATH" ]; then
+            echo "::error::没找到 .app，检查上一步 Archive 是否成功"
+            exit 1
+          fi
+          echo "打包: $APP_PATH"
+          mkdir -p "$RUNNER_TEMP/Payload"
+          cp -R "$APP_PATH" "$RUNNER_TEMP/Payload/"
+          cd "$RUNNER_TEMP"
+          zip -r -q EhViewer-unsigned.ipa Payload
+          mkdir -p "${{ github.workspace }}/build"
+          mv EhViewer-unsigned.ipa "${{ github.workspace }}/build/"
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: EhViewer-unsigned-ipa
+          path: build/EhViewer-unsigned.ipa
+          retention-days: 14
