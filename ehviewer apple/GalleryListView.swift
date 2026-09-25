@@ -1487,12 +1487,26 @@ class GalleryListViewModel {
     /// 是屏蔽悄悄失效——用户根本看不出来是哪一页没生效。
     var galleries: [GalleryInfo] = [] {
         didSet {
-            // 里面还会再写一次 galleries，靠这个标记挡住重入
+            // ⚠️ 崩溃修复（符号化自多份真实崩溃日志，全部定位到这里）：
+            // 此前这里直接写 GalleryFilterEngine.shared.apply(to: &galleries)，
+            // 对 galleries 自己取 &inout。当触发这次 didSet 的外层操作本身就是
+            // 通过 _modify 协程访问器原地改数组时（`.append(contentsOf:)`、
+            // `galleries[index].xxx = yyy` 都是），那个访问器在 didSet 触发的
+            // 时刻访问权还没释放——didSet 里再对同一个 galleries 申请一次
+            // 独占访问，两次独占访问互相打架，Swift 运行时的独占访问检查
+            // 直接判违规，以 EXC_BREAKPOINT/SIGTRAP 让整个进程崩溃。
+            // isApplyingFilters 标记挡的是「逻辑递归」，挡不住这个——冲突在
+            // 标记生效前，&galleries 那一行刚执行就已经触发。
+            // 把回写挪到 Task 里、让它排到下一轮调度：等外层那次还没关闭的
+            // 独占访问彻底结束之后再回来改 galleries，就不会再"同时"访问了。
             guard !isApplyingFilters else { return }
             isApplyingFilters = true
-            defer { isApplyingFilters = false }
-            let hidden = GalleryFilterEngine.shared.apply(to: &galleries)
-            filteredOutCount = hidden
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                defer { self.isApplyingFilters = false }
+                let hidden = GalleryFilterEngine.shared.apply(to: &self.galleries)
+                self.filteredOutCount = hidden
+            }
         }
     }
 
