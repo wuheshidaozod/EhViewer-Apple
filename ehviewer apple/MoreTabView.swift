@@ -38,7 +38,7 @@ struct MoreTabView: View {
             }
             // ★ 画廊详情中点击标签的 NavigationLink(value: TagSearchDestination) 需要此 destination
             .navigationDestination(for: TagSearchDestination.self) { dest in
-                GalleryListView(mode: .tag(keyword: dest.tag), isPushed: true)
+                GalleryListView(mode: .search(keyword: dest.tag), isPushed: true)
             }
         }
     }

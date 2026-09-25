@@ -592,11 +592,22 @@ struct GalleryDetailView: View {
     /// 标签按钮 — Split/三栏布局: 推入左侧导航栈; iPhone compact: NavigationLink 推入当前栈
     @ViewBuilder
     private func tagButton(label: String, fullTag: String) -> some View {
+        // ⚠️ Bug 修复：这里之前把 fullTag 原样传给 TagSearchDestination，
+        // 最终落到 GalleryListView 的 `.tag(keyword:)` 分支，拼成
+        // site.org/tag/<tag> 这条路径。带空格的标签（比如某些画师名本身
+        // 是"momozu komamochi"这种两段式）在这条路径上一直会被服务器按
+        // 空格拆成两个词分别搜。
+        // GalleryListView.exactTagQuery 已经解决过同样的问题——用
+        // `namespace:"value$"` 的精确匹配语法走普通搜索（f_search=），
+        // 而不是 /tag/ 这条路径。在这里、导航目标构造之前就把 fullTag
+        // 转换好，下面 4 处 `.navigationDestination(for: TagSearchDestination.self)`
+        // 也同步改成了用 .search(keyword:) 而不是 .tag(keyword:)。
+        let query = GalleryListView.exactTagQuery(for: fullTag)
         Group {
             if let tagNav = tagNavigationAction {
                 // iPad/macOS Split 布局: 用 Button 推入左侧 content/sidebar 列的 NavigationStack
                 Button {
-                    tagNav.navigate(fullTag)
+                    tagNav.navigate(query)
                 } label: {
                     tagLabel(label)
                 }
@@ -605,7 +616,7 @@ struct GalleryDetailView: View {
                 // iPhone compact: value-based NavigationLink 推入同一 NavigationStack
                 // ★ 必须使用 value-based 而非 destination-based，避免与 galleryList 的
                 //   NavigationLink(value: GalleryInfo) 混用导致路径混乱
-                NavigationLink(value: TagSearchDestination(tag: fullTag)) {
+                NavigationLink(value: TagSearchDestination(tag: query)) {
                     tagLabel(label)
                 }
                 .buttonStyle(.plain)

@@ -126,7 +126,7 @@ struct MainTabView: View {
                 macOSContentView(for: selectedTab)
                     .navigationDestination(for: TagSearchDestination.self) { dest in
                         // 标签点击推入的画廊列表 (对齐 Android: onTagClick → GalleryListScene)
-                        GalleryListView(mode: .tag(keyword: dest.tag), selection: $selectedGallery)
+                        GalleryListView(mode: .search(keyword: dest.tag), selection: $selectedGallery)
                     }
             }
             .id(selectedTab)

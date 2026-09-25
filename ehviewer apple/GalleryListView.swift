@@ -203,7 +203,9 @@ struct GalleryListView: View {
                         .navigationTitle(navigationTitle)
                         .navigationDestination(for: TagSearchDestination.self) { dest in
                             // 标签点击推入的画廊列表 (对齐 Android: onTagClick → 叠加新列表)
-                            GalleryListView(mode: .tag(keyword: dest.tag), selection: $selectedGallery)
+                            // dest.tag 已经是 GalleryDetailView.tagButton 转换好的精确匹配查询串
+                            // (namespace:"value$")，走 .search 而不是 .tag —— 见那边的注释。
+                            GalleryListView(mode: .search(keyword: dest.tag), selection: $selectedGallery)
                         }
                 }
                 .navigationSplitViewColumnWidth(min: 350, ideal: 400, max: 500)
@@ -333,7 +335,7 @@ struct GalleryListView: View {
             }
             // 标签点击推入的画廊列表 (对齐 Android: onTagClick → 叠加新列表)
             .navigationDestination(for: TagSearchDestination.self) { dest in
-                GalleryListView(mode: .tag(keyword: dest.tag), isPushed: true)
+                GalleryListView(mode: .search(keyword: dest.tag), isPushed: true)
             }
             .navigationTitle(navigationTitle)
             #if os(iOS)
