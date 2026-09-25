@@ -885,6 +885,11 @@ struct GalleryListView: View {
     /// 而不是把当前这一页原地变成搜索结果。
     private func applyQuickSearch(_ search: QuickSearchRecord) {
         if let onSearchSubmit, let keyword = search.keyword, !keyword.isEmpty {
+            // ⚠️ Bug 修复：浏览容器（BrowseHomeView）接管提交后走的是这条分支，
+            // 只切页面不记历史——保存历史的逻辑全在 viewModel.search()/
+            // performSearch()/searchWithAdvanced() 里，这条分支从来不碰它们，
+            // 于是"无法保存搜索记录"。在切页之前先手动记一笔。
+            viewModel.addSearchToHistory(keyword)
             onSearchSubmit(keyword)
         } else {
             viewModel.applyQuickSearch(search)
@@ -899,6 +904,8 @@ struct GalleryListView: View {
         // 和手动提交走同一条路：在浏览容器里要切到搜索页，
         // 否则点个标签就把「热门」变成了搜索结果
         if let onSearchSubmit {
+            // 同上：这条分支不会经过 viewModel 里记历史的那几个函数
+            viewModel.addSearchToHistory(quoted)
             onSearchSubmit(quoted)
         } else {
             viewModel.performSearch(query: quoted, advanced: advancedSearch)
@@ -952,6 +959,9 @@ struct GalleryListView: View {
         let query = searchTokens.joined(separator: " ")
         if let onSearchSubmit {
             // 交给浏览容器切到搜索页；这一份列表随之被重建
+            // ⚠️ Bug 修复：见 applyQuickSearch 里的同款注释——这条分支不经过
+            // viewModel.performSearch，之前完全没记历史。
+            viewModel.addSearchToHistory(query)
             onSearchSubmit(query)
         } else {
             viewModel.performSearch(query: query, advanced: advancedSearch)
@@ -1473,29 +1483,14 @@ class GalleryListViewModel {
     /// 过滤在 didSet 里做，而不是在那 8 处赋值点上分别调一次：
     /// 分散写就意味着以后新增一条取数路径必然会漏掉，而「漏掉」的表现
     /// 是屏蔽悄悄失效——用户根本看不出来是哪一页没生效。
-    ///
-    /// ⚠️ 崩溃修复（符号化自两份真实崩溃日志，均定位到这里）：
-    /// 此前 didSet 里直接写 `GalleryFilterEngine.shared.apply(to: &galleries)`，
-    /// 对 galleries 自己取 &inout。当触发这次 didSet 的外层操作本身就是通过
-    /// _modify 协程访问器原地改数组时（`.append(contentsOf:)`、
-    /// `galleries[index].xxx = yyy` 都是），那个访问器在 didSet 触发的时刻
-    /// 访问权还没释放——didSet 里再对同一个 galleries 申请一次独占访问，
-    /// 两次独占访问互相打架，Swift 运行时的独占访问检查直接判违规，
-    /// 以 EXC_BREAKPOINT/SIGTRAP 让整个进程崩溃。
-    /// `isApplyingFilters` 标记挡的是「逻辑递归」，挡不住这个——冲突在
-    /// 标记生效前，&galleries 那一行刚执行就已经触发。
-    /// 现在把回写挪到 Task 里、让它排到下一轮调度：等外层那次还没关闭的
-    /// 独占访问彻底结束之后再回来改 galleries，就不会再"同时"访问了。
     var galleries: [GalleryInfo] = [] {
         didSet {
+            // 里面还会再写一次 galleries，靠这个标记挡住重入
             guard !isApplyingFilters else { return }
             isApplyingFilters = true
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                defer { self.isApplyingFilters = false }
-                let hidden = GalleryFilterEngine.shared.apply(to: &self.galleries)
-                self.filteredOutCount = hidden
-            }
+            defer { isApplyingFilters = false }
+            let hidden = GalleryFilterEngine.shared.apply(to: &galleries)
+            filteredOutCount = hidden
         }
     }
 
@@ -2105,7 +2100,16 @@ class GalleryListViewModel {
                 builder.category = currentCategory
                 baseUrl = builder.build(site: site)
             case .tag(let keyword):
-                let encoded = keyword.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? keyword
+                // ⚠️ Bug 修复：E-Hentai 的 /tag/ 页面里，多词标签的空格约定是
+                // `+`（例如 /tag/artist:momozu+komamochi），不是 %20。
+                // 此前直接对原始空格做 addingPercentEncoding(.urlPathAllowed)，
+                // 编码出来是 %20；服务器解码回空格后，会把它当成两个独立的词
+                // 分别搜——"artist:momozu komamochi" 被拆成
+                // "artist:momozu" 和 "komamochi" 两个 tag。
+                // 不带空格的标签（parody:haikyuu!!）因为压根碰不到这条路径，
+                // 一直是好的，所以很容易漏掉。
+                let normalized = keyword.replacingOccurrences(of: " ", with: "+")
+                let encoded = normalized.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? normalized
                 baseUrl = "\(EhURL.host(for: site))tag/\(encoded)"
             case .favorites(let slot):
                 if slot < 0 {
@@ -2174,7 +2178,9 @@ class GalleryListViewModel {
             builder.category = currentCategory
             baseUrl = builder.build(site: site)
         case .tag(let keyword):
-            let encoded = keyword.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? keyword
+            // 同 fetchPage 里那处，/tag/ 页面的空格约定是 `+` 不是 %20
+            let normalized = keyword.replacingOccurrences(of: " ", with: "+")
+            let encoded = normalized.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? normalized
             baseUrl = "\(EhURL.host(for: site))tag/\(encoded)"
         default:
             // popular 等模式不支持日期跳转
@@ -2297,7 +2303,9 @@ class GalleryListViewModel {
                 builder.category = currentCategory
                 urlString = builder.build(site: site)
             case .tag(let keyword):
-                let encoded = keyword.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? keyword
+                // 同上，翻页 URL 也要用 + 而不是 %20
+                let normalized = keyword.replacingOccurrences(of: " ", with: "+")
+                let encoded = normalized.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? normalized
                 if page > 0 {
                     urlString = "\(host)tag/\(encoded)/\(page)"
                 } else {
