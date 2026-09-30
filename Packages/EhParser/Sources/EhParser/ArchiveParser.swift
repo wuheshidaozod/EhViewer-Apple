@@ -60,12 +60,13 @@ public enum ArchiveParser {
 
             // DOM 结构: html > head > body > div
             // E-Hentai 和 ExHentai 的 body 子节点索引不同
-            let bodyEl: Element
-            if isExHentai {
-                bodyEl = try doc.body()!
-            } else {
-                bodyEl = try doc.body()!
-            }
+            // ⚠️ Bug: 原来这里是 try doc.body()!——一旦服务器返回的不是正常的
+            // 归档页（错误页、限流页、Sad Panda 拦截页等没有 <body> 的响应），
+            // force-unwrap 失败是运行时直接崩溃，不是 Swift 错误，不会被下面
+            // 的 catch 接住，跟整段代码"解析失败就静默返回空数据"的设计初衷
+            // （对齐 Android catch (Exception) ignore）正好相反。改成 guard
+            // 提前返回，走同一条"优雅降级"路径。
+            guard let bodyEl = try doc.body() else { return data }
 
             let children = bodyEl.children()
             if isExHentai {
