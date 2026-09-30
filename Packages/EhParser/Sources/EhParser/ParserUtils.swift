@@ -1,4 +1,5 @@
 import Foundation
+import SwiftSoup
 
 // MARK: - 解析工具 (对应 Android ParserUtils.java)
 // 提供日期格式化、安全解析数字、HTML 实体解码等
@@ -85,5 +86,17 @@ public enum ParserUtils {
             }
         }
         return result
+    }
+}
+
+// MARK: - 安全取子节点
+
+extension Element {
+    /// 按下标取子元素，越界返回 nil。
+    /// SwiftSoup 的 `child(_:)` 越界时不抛错而是直接崩溃，服务器返回错误页或
+    /// 页面改版时，`child(0).child(0)` 这类链式调用会把整个 App 带崩
+    func safeChild(_ index: Int) -> Element? {
+        let kids = children()
+        return index >= 0 && index < kids.size() ? kids.get(index) : nil
     }
 }

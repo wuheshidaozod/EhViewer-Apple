@@ -33,6 +33,10 @@ public actor DownloadManager {
     /// 当前真正在执行的任务 gid — executeDownload 每次从 await 恢复后都要用它确认
     /// 自己是否仍然是活跃任务 (可能已被 pause/delete/pauseAll 取代)
     private var runningGid: Int64?
+    /// 每次启动 executeDownload 递增。只比较 gid 不够：暂停后立刻恢复同一本，
+    /// runningGid 会再次等于该 gid，旧的（已被取消的）执行恢复后会误以为自己
+    /// 仍是活跃任务，把新任务标成失败并清掉 activeTask，队列随之同时跑两本
+    private var runningToken = 0
     private let maxConcurrent = 1  // 同一时间只下载一个画廊
     private var isRunning = false
 
@@ -347,9 +351,11 @@ public actor DownloadManager {
         //   (对应 issue #8 问题四: 下载管理删除/恢复任务时闪退)
         let gid = downloadQueue[nextIndex].gallery.gid
         runningGid = gid
+        runningToken += 1
+        let token = runningToken
 
         Task {
-            await executeDownload(gid: gid)
+            await executeDownload(gid: gid, token: token)
         }
     }
 
@@ -387,22 +393,27 @@ public actor DownloadManager {
 
     /// 当前任务收尾 — 仅当 gid 仍是活跃任务时才清理并继续队列
     /// (防止已被 pause/delete 取代的旧任务把新任务的 activeTask 清空)
-    private func finishRunning(gid: Int64) {
-        guard runningGid == gid else { return }
+    private func finishRunning(gid: Int64, token: Int) {
+        guard isCurrentRun(gid: gid, token: token) else { return }
         runningGid = nil
         activeTask = nil
         processQueue()
     }
 
-    private func executeDownload(gid: Int64) async {
+    /// 这次执行是否仍是当前活跃的那一次（gid 与 token 都要对得上）
+    private func isCurrentRun(gid: Int64, token: Int) -> Bool {
+        runningGid == gid && runningToken == token
+    }
+
+    private func executeDownload(gid: Int64, token: Int) async {
         // iOS: 申请后台执行时间, 防止进入后台后 ~30 秒被系统杀死
         let bgToken = await beginBackgroundTask()
 
         // ★ 每个 await 挂起点之后都必须按 gid 重新定位任务，并确认自己仍是活跃任务
         guard let index = downloadQueue.firstIndex(where: { $0.gallery.gid == gid }),
-              runningGid == gid else {
+              isCurrentRun(gid: gid, token: token) else {
             await endBackgroundTask(bgToken)
-            finishRunning(gid: gid)
+            finishRunning(gid: gid, token: token)
             return
         }
 
@@ -435,9 +446,9 @@ public actor DownloadManager {
 
         // onDownloadStart 是 await — 队列可能已在此期间变化，重新定位
         guard let setupIndex = downloadQueue.firstIndex(where: { $0.gallery.gid == gid }),
-              runningGid == gid else {
+              isCurrentRun(gid: gid, token: token) else {
             await endBackgroundTask(bgToken)
-            finishRunning(gid: gid)
+            finishRunning(gid: gid, token: token)
             return
         }
         downloadQueue[setupIndex].spider = spider
@@ -463,7 +474,7 @@ public actor DownloadManager {
 
         // 统计下载结果 (对齐 Android DownloadManager.onFinished)
         var finishedCount = 0
-        for i in 0..<gallery.pages {
+        for i in 0..<max(gallery.pages, 0) {
             if await spider.getPageState(i) == SpiderQueen.stateFinish {
                 finishedCount += 1
             }
@@ -472,14 +483,15 @@ public actor DownloadManager {
         // ★ 长时间 await 之后任务可能已被删除或暂停 —— 此时不得再写回状态，
         //   否则会数组越界崩溃 (旧索引失效) 或把状态写到别的画廊头上
         guard let finalIndex = downloadQueue.firstIndex(where: { $0.gallery.gid == gid }),
-              runningGid == gid else {
+              isCurrentRun(gid: gid, token: token) else {
             await endBackgroundTask(bgToken)
-            finishRunning(gid: gid)
+            finishRunning(gid: gid, token: token)
             return
         }
 
         // 下载完成
-        let success = finishedCount == gallery.pages
+        // pages == 0 说明没拿到页数（列表解析的兜底值），一页没下也不能算完成
+        let success = gallery.pages > 0 && finishedCount == gallery.pages
         downloadQueue[finalIndex].state = success ? Self.stateFinish : Self.stateFailed
         downloadQueue[finalIndex].downloadedPages = finishedCount
         downloadQueue[finalIndex].spider = nil  // 释放 spider 引用
@@ -502,7 +514,7 @@ public actor DownloadManager {
         // iOS: 释放后台执行时间
         await endBackgroundTask(bgToken)
 
-        finishRunning(gid: gid)
+        finishRunning(gid: gid, token: token)
     }
 
     // MARK: - 文件管理

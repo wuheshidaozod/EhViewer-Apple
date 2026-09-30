@@ -320,7 +320,7 @@ public enum GalleryDetailParser {
         // Android: document.getElementsByClass("ptt").first().child(0).child(0).children()
         // → table.ptt > tbody > tr > [td...], 取倒数第 2 个 td 的文本
         guard let ptt = try doc.select(".ptt").first() else { return 0 }
-        let tds = try ptt.child(0).child(0).children()
+        guard let tds = ptt.safeChild(0)?.safeChild(0)?.children() else { return 0 }
         let count = tds.size()
         guard count >= 2 else { return 0 }
         return Int(try tds.get(count - 2).text()) ?? 0

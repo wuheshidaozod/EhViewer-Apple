@@ -12,7 +12,10 @@ public enum ForumsParser {
         guard let userlinks = try doc.getElementById("userlinks") else {
             throw ParserError.missingElement("#userlinks")
         }
-        let href = try userlinks.child(0).child(0).child(0).attr("href")
+        guard let link = userlinks.safeChild(0)?.safeChild(0)?.safeChild(0) else {
+            throw ParserError.missingElement("#userlinks a")
+        }
+        let href = try link.attr("href")
         guard !href.isEmpty else {
             throw ParserError.missingElement("profile href")
         }

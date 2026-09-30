@@ -79,17 +79,21 @@ public enum ArchiveParser {
                 if rows.size() >= 2 {
                     // Original
                     let original = rows.get(0)
-                    if original.children().size() >= 3 {
-                        data.originalCost = try original.child(0).child(0).text()
-                        data.originalUrl = try original.child(1).attr("action")
-                        data.originalSize = try original.child(2).child(0).text()
+                    if let cost = original.safeChild(0)?.safeChild(0),
+                       let form = original.safeChild(1),
+                       let size = original.safeChild(2)?.safeChild(0) {
+                        data.originalCost = try cost.text()
+                        data.originalUrl = try form.attr("action")
+                        data.originalSize = try size.text()
                     }
                     // Resample
                     let resample = rows.get(1)
-                    if resample.children().size() >= 3 {
-                        data.resampleCost = try resample.child(0).child(0).text()
-                        data.resampleUrl = try resample.child(1).attr("action")
-                        data.resampleSize = try resample.child(2).child(0).text()
+                    if let cost = resample.safeChild(0)?.safeChild(0),
+                       let form = resample.safeChild(1),
+                       let size = resample.safeChild(2)?.safeChild(0) {
+                        data.resampleCost = try cost.text()
+                        data.resampleUrl = try form.attr("action")
+                        data.resampleSize = try size.text()
                     }
                 }
             } else {
@@ -101,16 +105,20 @@ public enum ArchiveParser {
                 let rows = table.children()
                 if rows.size() >= 2 {
                     let original = rows.get(0)
-                    if original.children().size() >= 3 {
-                        data.originalCost = try original.child(0).child(0).text()
-                        data.originalUrl = try original.child(1).attr("action")
-                        data.originalSize = try original.child(2).child(0).text()
+                    if let cost = original.safeChild(0)?.safeChild(0),
+                       let form = original.safeChild(1),
+                       let size = original.safeChild(2)?.safeChild(0) {
+                        data.originalCost = try cost.text()
+                        data.originalUrl = try form.attr("action")
+                        data.originalSize = try size.text()
                     }
                     let resample = rows.get(1)
-                    if resample.children().size() >= 3 {
-                        data.resampleCost = try resample.child(0).child(0).text()
-                        data.resampleUrl = try resample.child(1).attr("action")
-                        data.resampleSize = try resample.child(2).child(0).text()
+                    if let cost = resample.safeChild(0)?.safeChild(0),
+                       let form = resample.safeChild(1),
+                       let size = resample.safeChild(2)?.safeChild(0) {
+                        data.resampleCost = try cost.text()
+                        data.resampleUrl = try form.attr("action")
+                        data.resampleSize = try size.text()
                     }
                 }
             }

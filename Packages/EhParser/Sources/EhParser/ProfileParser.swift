@@ -16,14 +16,16 @@ public enum ProfileParser {
             throw ParserError.missingElement("#profilename")
         }
 
-        result.displayName = try profilename.child(0).text()
+        if let nameEl = profilename.safeChild(0) {
+            result.displayName = try nameEl.text()
+        }
 
         // avatar: profilename 的下下一个兄弟元素的第一个子元素的 src
         // 对应 Android: profilename.nextElementSibling().nextElementSibling().child(0).attr("src")
         do {
             if let sib1 = try profilename.nextElementSibling(),
                let sib2 = try sib1.nextElementSibling() {
-                let avatar = try sib2.child(0).attr("src")
+                let avatar = try sib2.safeChild(0)?.attr("src") ?? ""
                 if !avatar.isEmpty {
                     if avatar.hasPrefix("http") {
                         result.avatar = avatar
