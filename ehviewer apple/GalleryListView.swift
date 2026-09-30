@@ -1011,8 +1011,13 @@ struct GalleryListView: View {
                 onPickSuggestion: { tag in
                     // 建议取代了正在打的那段文字：清掉它，否则提交时它会再变成
                     // 一个 token，同一个标签就出现两遍
+                    //
+                    // ⚠️ 必须转成搜索语法（f:"big breasts$"）再存：token 提交时
+                    // 是用空格拼接的，原样存 `female:big breasts` 会被服务器拆成
+                    // `female:big` 和 `breasts` 两个词。与标签选择器同一个转换。
                     searchFieldText = ""
-                    if !searchTokens.contains(tag) { searchTokens.append(tag) }
+                    let keyword = EhTagDatabase.rebuildKeyword(tag)
+                    if !searchTokens.contains(keyword) { searchTokens.append(keyword) }
                 },
                 onClearHistory: { viewModel.clearSearchHistory() },
                 onPickHistory: { term in
